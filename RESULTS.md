@@ -120,3 +120,94 @@ tạo hàng trùng.
 
 Sau khi sửa model, cần bổ sung ảnh verify ba lượt đạt để thay thế hoặc đặt cạnh ảnh
 baseline hiện tại.
+
+---
+
+## Task 03 - Data contract và quarantine priority
+
+**Trạng thái:** Chưa đạt, đã tái hiện baseline và hoàn tất các bước khảo sát ban đầu.
+
+### Quy trình đã chạy
+
+```powershell
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+$env:LAB17_DB = Join-Path (Get-Location) "warehouse.duckdb"
+
+Remove-Item warehouse.duckdb, warehouse.duckdb.wal -Force -ErrorAction SilentlyContinue
+python tools/run_pipeline.py
+python tools/verify.py --runs 1
+
+Push-Location dbt
+dbt test --profiles-dir . --target-path target --log-path logs
+Pop-Location
+
+python tools/verify.py
+```
+
+### Kết quả baseline
+
+| Tiêu chí | Kết quả hiện tại | Kỳ vọng | Trạng thái |
+|---|---:|---:|---|
+| Số ticket trong `silver_tickets` | 12.480 | 12.480 | Đạt baseline |
+| Priority NULL hoặc ngoài miền `1..4` | 6.606 | 0 | Chưa đạt |
+| `quarantine_tickets` | 0 | 312 | Chưa đạt |
+| dbt tests | 9/9 pass | Nhiều hơn 9 và tất cả pass | Chưa đạt |
+| Contract `silver_tickets` | Chưa enforced | Enforced | Chưa đạt |
+
+Việc 9 test gốc đều pass nhưng vẫn có 6.606 priority sai cho thấy test hiện tại chưa kiểm
+tra contract và miền giá trị của `priority`. Bảng quarantine rỗng vì điều kiện nhận diện
+bản ghi lỗi chưa được triển khai.
+
+### Phân bố priority đã khảo sát
+
+Nhóm hợp lệ cần giữ hoặc quy đổi:
+
+```text
+1, 2, 3, 4
+urgent=1, high=2, medium=3, low=4
+```
+
+Nhóm lỗi cần đưa vào quarantine:
+
+| Giá trị lỗi | Số bản ghi |
+|---|---:|
+| `0` | 49 |
+| Chuỗi rỗng | 43 |
+| `P1` | 39 |
+| `unknown` | 39 |
+| `P2` | 38 |
+| `5` | 37 |
+| NULL | 35 |
+| `-1` | 32 |
+| **Tổng** | **312** |
+
+### Bằng chứng
+
+![Chạy lại pipeline cho Task 03](assets/task-3-run-pipeline.png)
+
+![Kết quả quick baseline Task 03](assets/task-3-verify.png)
+
+![Kết quả 9 dbt tests ban đầu](assets/task-3-dbt.png)
+
+![Kết quả verify ba lượt trước khi sửa Task 03](assets/task-3-final-verify.png)
+
+### File cần xử lý
+
+- `dbt/macros/normalize_priority.sql`
+- `dbt/models/silver/silver_tickets.sql`
+- `dbt/models/silver/quarantine_tickets.sql`
+- `dbt/models/silver/schema.yml`
+
+### Điều kiện chuyển sang Đạt
+
+- Chuẩn hóa đúng cả số và nhãn priority hợp lệ.
+- Loại bản ghi lỗi trước khi chọn trạng thái CDC mới nhất.
+- Silver vẫn đủ 12.480 ticket và không có priority sai.
+- Quarantine đúng 312 bản ghi CDC lỗi.
+- Contract được bật.
+- Bổ sung test `not_null` và `accepted_values` để tổng số test lớn hơn 9.
+- Toàn bộ dbt test và verify ba lượt đều pass.
+
+Sau khi sửa source, cần bổ sung ảnh thể hiện `quarantine_tickets = 312`, priority sai bằng
+0 và số dbt tests mới đều pass.
