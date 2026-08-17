@@ -30,11 +30,12 @@ with DAG(
     default_args=DEFAULT_ARGS,
     tags=["ai-support", "daily"],
     # ------------------------------------------------------------------
-    # TODO (nhiệm vụ 1): hai tham số dưới đây quyết định chuyện gì xảy ra
-    # khi ai đó bấm Clear Task, và khi DAG bị dồn nhiều lần chạy cùng lúc.
-    # Đọc lại triệu chứng ở phiếu #1041 rồi đặt lại cho đúng.
-    catchup=True,
-    # max_active_runs=?
+    # NHIỆM VỤ 1: catchup=False để scheduler không tự tạo toàn bộ historical
+    # runs khi DAG được bật/Clear Task sau một thời gian dừng. max_active_runs=1
+    # để không có hai run ghi đồng thời vào cùng bảng Gold (đây chỉ giảm tần
+    # suất kích hoạt lỗi — root cause vẫn là thiếu unique_key/merge ở model).
+    catchup=False,
+    max_active_runs=1,
     # ------------------------------------------------------------------
 ) as dag:
 

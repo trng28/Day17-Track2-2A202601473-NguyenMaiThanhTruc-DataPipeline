@@ -30,8 +30,10 @@
 -- ---------------------------------------------------------------------------
 
 {{ config(
-    materialized     = 'incremental',
-    on_schema_change = 'fail'
+    materialized          = 'incremental',
+    unique_key            = ['event_date', 'customer_id'],
+    incremental_strategy  = 'delete+insert',
+    on_schema_change      = 'fail'
 ) }}
 
 select
@@ -49,7 +51,10 @@ select
 from {{ ref('silver_events') }}
 
 {% if is_incremental() %}
-where event_date > (select max(event_date) from {{ this }})
+-- Lookback 3 ngày: P99 độ trễ đo được trên bronze_events là 2,7258 ngày
+-- (235.512 giây). 3 ngày làm tròn lên bao phủ P99 và cả phần lớn đuôi max
+-- (2,9447 ngày) mà không phải quét lại toàn bộ lịch sử mỗi lượt chạy.
+where event_date > (select max(event_date) from {{ this }}) - interval 3 day
 {% endif %}
 
 group by 1, 2, 3, 4

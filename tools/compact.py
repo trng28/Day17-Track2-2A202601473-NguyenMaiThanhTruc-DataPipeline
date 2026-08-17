@@ -46,6 +46,7 @@ phải giảm, `files` phải giảm, và `result hash` phải GIỮ NGUYÊN.
 from __future__ import annotations
 
 import pathlib
+import shutil
 import sys
 
 import duckdb
@@ -56,6 +57,21 @@ from tools.common import DATA  # noqa: E402
 SRC = DATA / "gold_events"
 DST = DATA / "gold_events_v2"
 
+# Ba quyết định đo được từ dữ liệu (xem docs/TASK-04-PARQUET-OPTIMIZATION.md):
+#   - partition theo event_date: 14 giá trị phân biệt -> 14 thư mục, mỗi
+#     truy vấn dashboard (lọc 1 ngày) bỏ qua 13/14 partition trước khi mở file.
+#     Không partition theo customer_name: 650 giá trị sẽ tái tạo lại chính
+#     small-file problem đang cần sửa.
+#   - sort theo (customer_name, event_time): mỗi ngày có ~9.300-9.400 hàng
+#     cho 650 khách hàng; gom các hàng cùng khách hàng liền nhau để min/max
+#     của customer_name trong một row group hẹp lại, còn tác dụng lọc.
+#   - row_group_size 2048: nhỏ hơn hẳn một partition ngày (~9.300 hàng) nên
+#     một ngày có nhiều row group, mỗi row group chỉ phủ một dải khách hàng
+#     hẹp thay vì phủ luôn cả ngày (làm min/max vô dụng).
+PARTITION_COL = "event_date"
+SORT_COLS = ["customer_name", "event_time"]
+ROW_GROUP_SIZE = 2048
+
 
 def main() -> int:
     con = duckdb.connect()
@@ -63,27 +79,42 @@ def main() -> int:
     n_src = len(list(SRC.glob("*.parquet")))
     print(f"  nguồn : {SRC}  ({n_src:,} file)")
 
-    # TODO(nhiệm vụ 4): hiện thực khung COPY ... TO ... ở phần docstring.
-    #
-    #   con.execute(f"""
-    #       copy (
-    #           select * from read_parquet('{SRC}/*.parquet')
-    #           order by ...
-    #       ) to '{DST}' (
-    #           format parquet,
-    #           partition_by (...),
-    #           overwrite_or_ignore,
-    #           row_group_size ...
-    #       )
-    #   """)
-    #
-    # Sau đó kiểm tra không mất hàng nào:
-    #
-    #   assert <số row dataset cũ> == <số row dataset mới>
+    n_src_rows = con.execute(
+        f"select count(*) from read_parquet('{SRC}/*.parquet')"
+    ).fetchone()[0]
 
-    print("\n  tools/compact.py chưa được hiện thực — đây là nhiệm vụ 4.")
-    print("  Mở file này, đọc phần KHUNG THỰC HIỆN ở đầu file và điền vào TODO.")
-    print("  Hướng dẫn từng bước: GUIDE.md mục 4.\n")
+    # Xoá dataset cũ trước khi ghi lại, để chạy nhiều lần không để file của
+    # cấu hình trước (row group / sort khác) lẫn vào dataset mới.
+    shutil.rmtree(DST, ignore_errors=True)
+
+    order_by = ", ".join(SORT_COLS)
+    con.execute(f"""
+        copy (
+            select * from read_parquet('{SRC}/*.parquet')
+            order by {order_by}
+        ) to '{DST}' (
+            format parquet,
+            partition_by ({PARTITION_COL}),
+            overwrite_or_ignore,
+            row_group_size {ROW_GROUP_SIZE}
+        )
+    """)
+
+    n_dst_files = len(list(DST.glob("**/*.parquet")))
+    n_dst_rows = con.execute(
+        f"select count(*) from read_parquet('{DST}/**/*.parquet', hive_partitioning = true)"
+    ).fetchone()[0]
+
+    assert n_src_rows == n_dst_rows, (
+        f"row count mismatch: nguồn={n_src_rows:,} đích={n_dst_rows:,}"
+    )
+
+    print(f"  đích  : {DST}  ({n_dst_files:,} file, {n_dst_rows:,} hàng)")
+    print(f"  partition = {PARTITION_COL} · sort = ({order_by}) · "
+          f"row_group_size = {ROW_GROUP_SIZE:,}")
+    print(f"  OK — số hàng nguồn = số hàng đích = {n_src_rows:,}")
+
+    con.close()
     return 0
 
 
