@@ -1,4 +1,4 @@
-# Báo cáo LAB 17 — Data Pipeline Engineering
+# Báo cáo LAB 17 - Data Pipeline Engineering
 
 **Họ tên:** Nguyễn Mai Thanh Trúc **MSHV:** 2A202601473  **Lớp:** E403  **Ngày:** 2026-08-17
 
@@ -9,13 +9,13 @@
 <details>
 <summary>Dán nguyên output ba lần chạy vào đây</summary>
 
-```
+```markdown
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   LAB 17 · make verify
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  run 1/3 … 36.7s
-  run 2/3 … 37.5s
-  run 3/3 … 33.5s
+  run 1/3 … 188.1s
+  run 2/3 … 150.5s
+  run 3/3 … 132.7s
 
   BẢNG                  ỔN ĐỊNH          SỐ HÀNG     KỲ VỌNG   GHI CHÚ
   ──────────────────────────────────────────────────────────────────────────
@@ -74,20 +74,20 @@ Tổng kết: **4 / 4 tiêu chí đạt**
 | | |
 |---|---|
 | **Triệu chứng** | `gold_feature_daily` ổn định qua nhiều lần chạy (cùng checksum) nhưng thiếu ~5% hàng, tập trung ở các ngày đã "đóng" từ lâu; ngày mới thì đủ. |
-| **P99 độ trễ đo được** | **2,7258 ngày** (235.512 giây) *(bắt buộc)* — P50 = 11.067s, P95 = 156.703,05s, max = 254.421s (≈2,9447 ngày), 5,0509% event trễ hơn 1 ngày. |
-| **Lookback đã chọn** | **3 ngày** — P99 làm tròn lên, bao phủ 99% độ trễ quan sát được và cả phần lớn đuôi max, mà không phải quét lại toàn bộ lịch sử ở mọi lượt chạy sau này. |
-| **Nguyên nhân** | Điều kiện `where event_date > (select max(event_date) from {{ this }})` chỉ nhận ngày *lớn hơn* ngày lớn nhất đã có trong đích. Một event có `event_date=08-12` nhưng `_ingested_at=08-15` không thoả điều kiện này ở lượt chạy 08-15 (vì `max(event_date)` trong đích khi đó đã ≥ 08-14), và không bao giờ thoả ở bất kỳ lượt sau đó (`max` chỉ tăng dần) — event bị bỏ sót vĩnh viễn, không phải bỏ sót tạm thời. Đây là lỗi *đúng*, không phải lỗi *ổn định*. |
+| **P99 độ trễ đo được** | **2,7258 ngày** (235.512 giây) *(bắt buộc)* P50 = 11.067s, P95 = 156.703,05s, max = 254.421s (≈2,9447 ngày), 5,0509% event trễ hơn 1 ngày. |
+| **Lookback đã chọn** | **3 ngày**  P99 làm tròn lên, bao phủ 99% độ trễ quan sát được và cả phần lớn đuôi max, mà không phải quét lại toàn bộ lịch sử ở mọi lượt chạy sau này. |
+| **Nguyên nhân** | Điều kiện `where event_date > (select max(event_date) from {{ this }})` chỉ nhận ngày *lớn hơn* ngày lớn nhất đã có trong đích. Một event có `event_date=08-12` nhưng `_ingested_at=08-15` không thoả điều kiện này ở lượt chạy 08-15 (vì `max(event_date)` trong đích khi đó đã ≥ 08-14), và không bao giờ thoả ở bất kỳ lượt sau đó (`max` chỉ tăng dần)  event bị bỏ sót vĩnh viễn, không phải bỏ sót tạm thời. Đây là lỗi *đúng*, không phải lỗi *ổn định*. |
 | **Cách khắc phục** | Đổi filter thành `where event_date > (select max(event_date) from {{ this }}) - interval 3 day`; thêm `unique_key = ['event_date', 'customer_id']` và `incremental_strategy = 'delete+insert'` để mỗi lần tính lại cửa sổ 3 ngày **thay thế** kết quả cũ thay vì cộng dồn (tránh tái tạo lỗi mục 1 trên bảng này). |
 | **Bằng chứng** | trước: 8.645 hàng (thiếu 455) · sau: 9.100 hàng cả ba lượt, checksum `3db448685c` ổn định, không trùng `(event_date, customer_id)` |
 
 Vì sao chọn P99 làm căn cứ thay vì `max`? Chi phí của mỗi lựa chọn là gì?
 
 > `max` là một điểm ngoại lệ đơn lẻ; dùng nó làm lookback nghĩa là MỌI lượt chạy sau
-> này đều phải quét lại toàn bộ cửa sổ đó chỉ để phục vụ đúng một bản ghi hiếm gặp —
+> này đều phải quét lại toàn bộ cửa sổ đó chỉ để phục vụ đúng một bản ghi hiếm gặp 
 > chi phí trả lặp lại vĩnh viễn cho một trường hợp cá biệt. P99 bao phủ 99% trường hợp
 > với cửa sổ hẹp hơn nhiều (3 ngày so với gần 3 ngày của max, nhưng về nguyên tắc lựa
 > chọn là dựa trên phân phối chứ không phải giá trị cực trị), đổi lại chấp nhận rủi ro
-> bỏ sót đúng phần đuôi 1% còn lại — rủi ro này được đo lường và ghi nhận rõ ràng thay
+> bỏ sót đúng phần đuôi 1% còn lại rủi ro này được đo lường và ghi nhận rõ ràng thay
 > vì bị che giấu.
 
 ---
@@ -97,7 +97,7 @@ Vì sao chọn P99 làm căn cứ thay vì `max`? Chi phí của mỗi lựa ch�
 | | |
 |---|---|
 | **Triệu chứng** | Từ 08-10, backend đổi `priority` từ số sang nhãn chữ. Pipeline không dừng, nhưng `silver_tickets.priority` có 6.606 hàng NULL hoặc ngoài miền `1..4`; `quarantine_tickets` rỗng dù đã có 312 bản ghi lỗi thật; 9/9 dbt test gốc vẫn pass. |
-| **Nguyên nhân** | `normalize_priority()` dùng `try_cast(priority_raw as integer)` — sai theo **hai hướng cùng lúc**: biến nhãn chữ hợp lệ (`urgent/high/medium/low`) thành NULL (mất dữ liệu tốt), đồng thời vẫn chấp nhận số ngoài miền (`0`, `5`, `-1`) vì chúng ép kiểu số hợp lệ dù ngoài hợp đồng dữ liệu. `contract.enforced: false` nên sai kiểu không bị chặn; 9 test gốc không kiểm tra miền giá trị nên vẫn pass dù dữ liệu sai. |
+| **Nguyên nhân** | `normalize_priority()` dùng `try_cast(priority_raw as integer)` sai theo **hai hướng cùng lúc**: biến nhãn chữ hợp lệ (`urgent/high/medium/low`) thành NULL (mất dữ liệu tốt), đồng thời vẫn chấp nhận số ngoài miền (`0`, `5`, `-1`) vì chúng ép kiểu số hợp lệ dù ngoài hợp đồng dữ liệu. `contract.enforced: false` nên sai kiểu không bị chặn; 9 test gốc không kiểm tra miền giá trị nên vẫn pass dù dữ liệu sai. |
 | **Ba nhóm giá trị `priority` và cách xử lý từng nhóm** | (1) Số hợp lệ `1..4` → giữ nguyên. (2) Nhãn chữ hợp lệ `urgent/high/medium/low` (schema evolution, ý nghĩa không đổi) → map về `1/2/3/4` theo tài liệu API backend. (3) Giá trị hỏng thật (`P1`, `P2`, `0`, `5`, `-1`, rỗng, NULL, `unknown`) → trả `NULL` từ macro, đưa vào quarantine. |
 | **Cách khắc phục** | Viết lại `normalize_priority()` bằng `CASE` xử lý đủ ba nhóm, dùng chung cho cả `silver_tickets` và `quarantine_tickets` để hai model không lệch định nghĩa. Trong `silver_tickets`: đổi thứ tự CTE thành *chuẩn hoá → lọc bản ghi NULL → xếp hạng CDC → lấy mới nhất* (lọc **bản ghi**, không lọc **ticket**, nên vẫn giữ đủ 12.480 ticket). `quarantine_tickets`: thay `where false` bằng điều kiện macro trả NULL. `schema.yml`: bật `contract.enforced: true`, thêm test `not_null` + `accepted_values([1,2,3,4])` cho `priority`. |
 | **Bằng chứng** | `quarantine_tickets` = 312 hàng (đúng 312/312, khớp phân bố `reject_reason` đã khảo sát) · `dbt test` 11/11 pass (thêm 2 test so với baseline 9) · `silver_tickets` vẫn 12.480 ticket, 0 hàng priority sai |
@@ -131,6 +131,6 @@ pipeline dừng khi gặp bản ghi lỗi?
 
 | Nhiệm vụ | Khi tiếp nhận một hệ thống chưa quen, tôi sẽ kiểm tra điều này trước tiên |
 |---|---|
-| 1 | Với mọi model `incremental`, kiểm tra `unique_key` + `incremental_strategy` có khớp với grain thực tế (entity vs event) trước khi tin rằng "không lỗi, không dừng" nghĩa là "đúng" — một bảng có thể chạy trơn tru và vẫn âm thầm nhân bản dữ liệu. |
+| 1 | Với mọi model `incremental`, kiểm tra `unique_key` + `incremental_strategy` có khớp với grain thực tế (entity vs event) trước khi tin rằng "không lỗi, không dừng" nghĩa là "đúng" một bảng có thể chạy trơn tru và vẫn âm thầm nhân bản dữ liệu. |
 | 2 | Đo phân bố độ trễ thực tế (`_ingested_at - event_time`) bằng percentile trước khi tin vào bất kỳ điều kiện lọc "chỉ lấy dữ liệu mới hơn X" — một filter tưởng như vô hại có thể vĩnh viễn bỏ sót dữ liệu về muộn nếu không có lookback window dựa trên số liệu đo được. |
 | 3 | Khi nguồn đổi định dạng dữ liệu (schema evolution), phân loại rõ "đổi cách biểu diễn" và "dữ liệu lỗi thật" trước khi viết logic validate — gộp hai nhóm này làm một sẽ hoặc làm mất dữ liệu tốt, hoặc để lọt dữ liệu xấu, tuỳ hướng sai. |
